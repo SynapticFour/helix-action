@@ -1,0 +1,36 @@
+{
+  "workload": [
+    "GET /health",
+    "GET /ga4gh/drs/v1/service-info",
+    "GET /ga4gh/drs/v1/objects/test-object-1"
+  ],
+  "threshold_pct": 10.0,
+  "warning": true,
+  "baseline": {
+    "label": "vX",
+    "endpoint": "http://127.0.0.1:1",
+    "wall_ms": 100.0,
+    "rss_kb": 1000,
+    "requests": 3,
+    "errors": 0,
+    "error_rate": 0.0,
+    "bytes": 100
+  },
+  "candidate": {
+    "label": "vY",
+    "endpoint": "http://127.0.0.1:2",
+    "wall_ms": 120.0,
+    "rss_kb": 1000,
+    "requests": 3,
+    "errors": 0,
+    "error_rate": 0.0,
+    "bytes": 100
+  },
+  "diff": [
+    {"name": "wall_ms", "pct": 20.0, "worse": true},
+    {"name": "rss_kb", "pct": 0.0, "worse": false},
+    {"name": "error_rate", "pct": 0.0, "worse": false}
+  ],
+  "warnings": ["wall_ms +20.0% exceeds 10% threshold"],
+  "note": "Client-side timing of 3 small GETs. Not a GIAB/Demo hap.py benchmark, not clinical throughput, not HELIOS. Warnings do not fail CI."
+}

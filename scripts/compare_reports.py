@@ -147,7 +147,11 @@ def comment_line(previous: dict[str, Any] | None, current: dict[str, Any]) -> st
     return f"Helix Verification — Previous: {prev_s} | Current: {cx}/{cy} | {apis}"
 
 
-def render_comment(previous: dict[str, Any] | None, current: dict[str, Any]) -> str:
+def render_comment(
+    previous: dict[str, Any] | None,
+    current: dict[str, Any],
+    bench: dict[str, Any] | None = None,
+) -> str:
     regs = regressions(previous, current)
     lines = [
         "<!-- helix-verification -->",
@@ -164,7 +168,60 @@ def render_comment(previous: dict[str, Any] | None, current: dict[str, Any]) -> 
         lines += ["", "**Regressions (PASS → FAIL)**"]
         for r in regs:
             lines.append(f"- {r['service']} / {r['name']}")
+    if bench is not None:
+        lines.extend(render_bench_section(bench))
     return "\n".join(lines) + "\n"
+
+
+def load_bench(path: Path) -> dict[str, Any]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or "warning" not in data or "diff" not in data:
+        raise ValueError(f"{path} is not a Helix BenchOutcome (missing warning/diff)")
+    return data
+
+
+def _fmt_pct(pct: Any) -> str:
+    if pct is None:
+        return "n/a"
+    try:
+        return f"{float(pct):+.1f}%"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def render_bench_section(bench: dict[str, Any]) -> list[str]:
+    threshold = bench.get("threshold_pct", 10)
+    baseline = bench.get("baseline") or {}
+    candidate = bench.get("candidate") or {}
+    lines = [
+        "",
+        "## Helix bench (warn only — does not fail this job)",
+        "",
+        "3 small GETs (not Demo hap.py / GIAB, not HELIOS). "
+        f"Threshold {threshold}%. Performance noise is expected; humans decide.",
+        "",
+        f"- Baseline **{baseline.get('label', 'baseline')}** "
+        f"wall_ms={baseline.get('wall_ms', 'n/a')} "
+        f"error_rate={baseline.get('error_rate', 'n/a')}",
+        f"- Candidate **{candidate.get('label', 'candidate')}** "
+        f"wall_ms={candidate.get('wall_ms', 'n/a')} "
+        f"error_rate={candidate.get('error_rate', 'n/a')}",
+    ]
+    diffs = bench.get("diff") or []
+    if diffs:
+        lines += ["", "| Metric | Change |"]
+        lines.append("|---|---|")
+        for d in diffs:
+            name = d.get("name", "")
+            mark = " WARN" if d.get("worse") else ""
+            lines.append(f"| {name} | {_fmt_pct(d.get('pct'))}{mark} |")
+    if bench.get("warning"):
+        lines += ["", "**Warnings (not a red X)**"]
+        for w in bench.get("warnings") or []:
+            lines.append(f"- {w}")
+    else:
+        lines += ["", "_No metric exceeded the warning threshold._"]
+    return lines
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -173,6 +230,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--previous", type=Path, default=None)
     p.add_argument("--comment-out", type=Path, default=None)
     p.add_argument("--github-output", type=Path, default=None)
+    p.add_argument(
+        "--bench-json",
+        type=Path,
+        default=None,
+        help="Optional helix bench JSON. Appended to the comment; never changes the exit code.",
+    )
     args = p.parse_args(argv)
 
     current = load_report(args.current)
@@ -180,8 +243,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.previous is not None and args.previous.is_file():
         previous = load_report(args.previous)
 
+    bench = None
+    if args.bench_json is not None:
+        bench = load_bench(args.bench_json)
+
     regs = regressions(previous, current)
-    comment = render_comment(previous, current)
+    comment = render_comment(previous, current, bench)
     if args.comment_out:
         args.comment_out.write_text(comment, encoding="utf-8")
     print(comment_line(previous, current))
@@ -196,6 +263,8 @@ def main(argv: list[str] | None = None) -> int:
             cx, cy = score(current)
             fh.write(f"previous_score={px}/{py}\n")
             fh.write(f"current_score={cx}/{cy}\n")
+            if bench is not None:
+                fh.write(f"bench_warning={'true' if bench.get('warning') else 'false'}\n")
 
     return 1 if regs else 0
 

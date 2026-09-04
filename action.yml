@@ -36,9 +36,29 @@ inputs:
     required: false
     default: "true"
   fail-on-regression:
-    description: "If true, fail the job only when a check went PASS → FAIL. Known FAILs do not fail the job."
+    description: "If true, fail the job only when a check went PASS → FAIL. Known FAILs do not fail the job. Bench warnings never fail the job."
     required: false
     default: "true"
+  bench-baseline:
+    description: Optional origin for `helix bench --baseline`. Must be set together with bench-candidate. Empty = skip bench.
+    required: false
+    default: ""
+  bench-candidate:
+    description: Optional origin for `helix bench --candidate`. Must be set together with bench-baseline.
+    required: false
+    default: ""
+  bench-threshold:
+    description: Percent worse than baseline that produces a comment warning. Does not fail the job.
+    required: false
+    default: "10"
+  bench-baseline-label:
+    description: Label for the baseline sample in bench JSON / comment.
+    required: false
+    default: "baseline"
+  bench-candidate-label:
+    description: Label for the candidate sample in bench JSON / comment.
+    required: false
+    default: "candidate"
   run:
     description: "Set to false to skip verify (this repo's CI: metadata + compare-script tests live in the workflow)."
     required: false
@@ -61,6 +81,9 @@ outputs:
   previous-score:
     description: Previous X/Y, or 0/0 when none
     value: ${{ steps.compare.outputs.previous_score }}
+  bench-warning:
+    description: "true if helix bench ran and a metric exceeded the threshold (informational; never fails the job)"
+    value: ${{ steps.compare.outputs.bench_warning }}
 
 runs:
   using: composite
@@ -144,14 +167,58 @@ runs:
         python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$JSON"
         echo "json-path=$JSON" >> "$GITHUB_OUTPUT"
         echo "HELIX_VERIFY_JSON=$JSON" >> "$GITHUB_ENV"
+        echo "HELIX_VERIFY_DIR=$(dirname "$JSON")" >> "$GITHUB_ENV"
         echo "helix verify wrote JSON (process exit ${ec}; action does not treat known FAILs as job failure)"
+
+    - name: Require both bench URLs
+      if: ${{ inputs.run != 'false' && ((inputs.bench-baseline != '' && inputs.bench-candidate == '') || (inputs.bench-baseline == '' && inputs.bench-candidate != '')) }}
+      shell: bash
+      run: |
+        echo "bench-baseline and bench-candidate must both be set, or both left empty" >&2
+        exit 1
+
+    - name: Run helix bench
+      if: ${{ inputs.run != 'false' && inputs.bench-baseline != '' && inputs.bench-candidate != '' }}
+      shell: bash
+      env:
+        HELIX_BIN_INPUT: ${{ inputs.helix-bin }}
+        CARGO_TARGET_DIR: ${{ runner.temp }}/helix-target
+        BENCH_BASELINE: ${{ inputs.bench-baseline }}
+        BENCH_CANDIDATE: ${{ inputs.bench-candidate }}
+        BENCH_THRESHOLD: ${{ inputs.bench-threshold }}
+        BENCH_BASELINE_LABEL: ${{ inputs.bench-baseline-label }}
+        BENCH_CANDIDATE_LABEL: ${{ inputs.bench-candidate-label }}
+        RUST_LOG: error
+      run: |
+        set -euo pipefail
+        if [[ -n "${HELIX_BIN_INPUT}" ]]; then
+          HELIX="${HELIX_BIN_INPUT}"
+        else
+          HELIX="${CARGO_TARGET_DIR}/release/helix"
+        fi
+        JSON="${HELIX_VERIFY_DIR}/helix-bench.json"
+        if ! "$HELIX" bench --help >/dev/null 2>&1; then
+          echo "helix-ref has no 'helix bench'. Pin helix-ref to a SHA that includes the Stage 4 CLI." >&2
+          exit 1
+        fi
+        echo "Running: $HELIX bench --baseline ${BENCH_BASELINE} --candidate ${BENCH_CANDIDATE}"
+        "$HELIX" bench \
+          --baseline "${BENCH_BASELINE}" \
+          --candidate "${BENCH_CANDIDATE}" \
+          --baseline-label "${BENCH_BASELINE_LABEL}" \
+          --candidate-label "${BENCH_CANDIDATE_LABEL}" \
+          --threshold "${BENCH_THRESHOLD}" \
+          --format json >"$JSON"
+        python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$JSON"
+        echo "HELIX_BENCH_JSON=$JSON" >> "$GITHUB_ENV"
+        echo "helix bench wrote JSON (warnings do not fail this job)"
 
     - name: Upload current JSON
       if: ${{ inputs.run != 'false' }}
       uses: actions/upload-artifact@v4
       with:
         name: ${{ inputs.artifact-name }}
-        path: ${{ env.HELIX_VERIFY_JSON }}
+        path: ${{ env.HELIX_VERIFY_DIR }}
         if-no-files-found: error
 
     - name: Fetch previous JSON
@@ -181,6 +248,9 @@ runs:
         args=(--current "${HELIX_VERIFY_JSON}" --comment-out "$COMMENT" --github-output "$GITHUB_OUTPUT")
         if [[ -n "${HELIX_VERIFY_PREVIOUS:-}" && -f "${HELIX_VERIFY_PREVIOUS}" ]]; then
           args+=(--previous "${HELIX_VERIFY_PREVIOUS}")
+        fi
+        if [[ -n "${HELIX_BENCH_JSON:-}" && -f "${HELIX_BENCH_JSON}" ]]; then
+          args+=(--bench-json "${HELIX_BENCH_JSON}")
         fi
         set +e
         python3 "${GITHUB_ACTION_PATH}/scripts/compare_reports.py" "${args[@]}"
@@ -214,3 +284,6 @@ runs:
           exit 1
         fi
         echo "No PASS → FAIL regressions (known FAILs and skips do not fail this job)."
+        if [[ "${{ steps.compare.outputs.bench_warning }}" == "true" ]]; then
+          echo "Helix bench warned (threshold); that is informational and did not fail this job."
+        fi

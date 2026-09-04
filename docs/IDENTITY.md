@@ -1,6 +1,6 @@
 # Who helix-action is for
 
-A **thin GitHub Action** so Ferrum (or any) CI can run **`helix verify`** against a stack the job already started, compare JSON to the last successful run on the target branch, and comment PASS/FAIL counts. Apache-2.0. Not sold.
+A **thin GitHub Action** so Ferrum (or any) CI can run **`helix verify`** against a stack the job already started, compare JSON to the last successful run on the target branch, and comment PASS/FAIL counts. Optional `helix bench` warnings may be appended; they never fail the job. Apache-2.0. Not sold.
 
 Helix productizes HelixTest (separate git root). This Action is the Stage 2 CI wrapper, parallel to [helixtest-action](https://github.com/SynapticFour/helixtest-action) (which downloads `helixtest` release binaries and does not compare/comment).
 

@@ -27,7 +27,12 @@ Until this repo has a tag, pin the action at a **commit SHA**.
 | `baseline-branch` | no | PR base, else default branch | Branch used to find the last **successful** workflow run |
 | `artifact-name` | no | `helix-verify-json` | Artifact holding `helix-verify.json` |
 | `comment` | no | `true` | Upsert a PR comment (`<!-- helix-verification -->`) |
-| `fail-on-regression` | no | `true` | Job fails only on PASS → FAIL. Known FAILs stay green. |
+| `fail-on-regression` | no | `true` | Job fails only on PASS → FAIL. Known FAILs stay green. Bench warnings never fail the job. |
+| `bench-baseline` | no | empty | Origin for `helix bench --baseline`. Set together with `bench-candidate`, or leave both empty. |
+| `bench-candidate` | no | empty | Origin for `helix bench --candidate`. |
+| `bench-threshold` | no | `10` | Percent worse than baseline → comment warning only. |
+| `bench-baseline-label` | no | `baseline` | Label in bench JSON / comment. |
+| `bench-candidate-label` | no | `candidate` | Label in bench JSON / comment. |
 | `run` | no | `true` | `false` = skip verify (used by this repo’s CI) |
 | `github-token` | no | `${{ github.token }}` | See secrets below |
 
@@ -61,6 +66,7 @@ Do not put Ferrum credentials, JWT secrets, or HELIOS signing keys in this Actio
 | `regression` | `true` if any check went PASS → FAIL |
 | `current-score` | `X/Y` executed checks (skips omitted) |
 | `previous-score` | Baseline `X/Y` |
+| `bench-warning` | `true` if bench ran and a metric exceeded the threshold (never fails the job) |
 
 `helix verify` itself exits 1 when the report contains FAILs. The Action **captures JSON anyway** and does not use that exit code as the job result.
 
@@ -69,6 +75,8 @@ Do not put Ferrum credentials, JWT secrets, or HELIOS signing keys in this Actio
 ```
 Helix Verification — Previous: 5/5 | Current: 4/5 | DRS: FAIL, WES: SKIP
 ```
+
+If `bench-baseline` and `bench-candidate` are set, the same comment grows a **Helix bench (warn only)** section. A >threshold% slower candidate is a warning for humans. It does **not** fail the job.
 
 One comment per PR is updated in place.
 
@@ -96,6 +104,9 @@ jobs:
         with:
           endpoint: http://127.0.0.1:8080
           helix-ref: main   # SHA that contains helix verify
+          # optional Stage 4 scaffold (never fails the job):
+          # bench-baseline: http://127.0.0.1:8080
+          # bench-candidate: http://127.0.0.1:8080
 ```
 
 Do **not** add this as a required status check on Ferrum `main` until a week of pilot runs is boring (Helix Stage 2). Known FAILs must not block merges.

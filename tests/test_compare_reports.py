@@ -105,6 +105,49 @@ class CompareReportsTest(unittest.TestCase):
         )
         self.assertEqual(r2.returncode, 0)
 
+    def test_bench_warning_appends_comment_and_keeps_exit_zero(self):
+        pass_f = FIXTURES / "all_pass.json"
+        bench_f = FIXTURES / "bench_warn.json"
+        r = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--current",
+                str(pass_f),
+                "--bench-json",
+                str(bench_f),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(r.returncode, 0)
+        report = load("all_pass.json")
+        bench = json.loads(bench_f.read_text(encoding="utf-8"))
+        comment = compare_reports.render_comment(None, report, bench)
+        self.assertIn("Helix bench (warn only — does not fail this job)", comment)
+        self.assertIn("wall_ms +20.0% exceeds 10% threshold", comment)
+        self.assertIn("WARN", comment)
+
+    def test_bench_warning_does_not_clear_regression_exit(self):
+        pass_f = FIXTURES / "all_pass.json"
+        fail_f = FIXTURES / "known_fail.json"
+        bench_f = FIXTURES / "bench_warn.json"
+        r = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--previous",
+                str(pass_f),
+                "--current",
+                str(fail_f),
+                "--bench-json",
+                str(bench_f),
+            ],
+            check=False,
+        )
+        self.assertEqual(r.returncode, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
