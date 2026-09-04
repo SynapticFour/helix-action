@@ -1,0 +1,22 @@
+# Prove compare-script + action metadata. Does not start Ferrum. Not GA4GH certification.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  compare-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Action metadata exists
+        run: test -f action.yml && test -f README.md && test -f LICENSE
+      - name: Compare-script unit tests
+        run: python3 -m unittest discover -s tests -v
+      - uses: ./
+        with:
+          run: "false"

@@ -1,0 +1,17 @@
+{
+  "services": [
+    {
+      "service": "Drs",
+      "tests": [
+        {"name": "DRS object endpoint reachable", "status": "pass", "passed": true, "error": null, "level": "Level0", "category": "Other", "weight": 1.0},
+        {"name": "DRS DrsObject OpenAPI + access_methods", "status": "pass", "passed": true, "error": null, "level": "Level1", "category": "Schema", "weight": 1.0},
+        {"name": "DRS checksum correctness", "status": "fail", "passed": false, "error": "checksum mismatch", "level": "Level2", "category": "Checksum", "weight": 1.0},
+        {"name": "DRS HTTP Range support", "status": "pass", "passed": true, "error": null, "level": "Level2", "category": "Other", "weight": 1.0},
+        {"name": "DRS invalid object id returns 404", "status": "pass", "passed": true, "error": null, "level": "Level5", "category": "Robustness", "weight": 1.0}
+      ]
+    }
+  ],
+  "enabled_services": ["Drs"],
+  "skipped_services": [],
+  "executed_test_modules": ["Drs"]
+}
