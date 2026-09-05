@@ -1,0 +1,12 @@
+# helix-action pins (not a SKU join)
+#
+# Helix: no release tag yet. Default helix-ref in action.yml is `main` and
+# logs a warning. Callers MUST pin a 40-character SHA that emits
+# VerificationRun JSON and includes `helix compare`. Do not invent a Helix tag.
+#
+# HelixTest pin matches Helix/VERSIONS.lock and Ferrum (tag v0.1.3 / this SHA).
+
+HELIX_REF=main
+HELIXTEST_REF=v0.1.3
+HELIXTEST_SHA=1832c043e1679ec283cb2113510ee33684317cce
+RUST_TOOLCHAIN=1.91.1

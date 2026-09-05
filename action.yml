@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 name: Helix verify
-description: Run helix verify, compare with the last successful baseline, comment on the PR. Fail only on PASS→FAIL regressions.
+description: Run helix verify, compare VerificationRun JSON at stable check id, comment on the PR. Fail only on new regressions or runtime errors.
 author: Synaptic Four
 branding:
   icon: check-circle
@@ -12,19 +12,23 @@ inputs:
     required: false
     default: ""
   helix-ref:
-    description: Git ref of SynapticFour/Helix to build (ignored if helix-bin is set).
+    description: "Git ref of SynapticFour/Helix to build (ignored if helix-bin is set). Pin a SHA that includes helix compare / VerificationRun. Floating `main` warns."
     required: false
     default: "main"
   helixtest-ref:
-    description: Git ref of SynapticFour/HelixTest (Helix path-depends on a sibling checkout).
+    description: Git ref of SynapticFour/HelixTest (Helix path-depends on a sibling checkout). Default is the v0.1.3 SHA.
     required: false
-    default: "v0.1.3"
+    default: "1832c043e1679ec283cb2113510ee33684317cce"
   helix-bin:
     description: Absolute path to an already-built helix binary. Empty = build from helix-ref.
     required: false
     default: ""
+  profile:
+    description: Helix verify profile (`generic` or `ferrum`). Default generic. Never inferred from the target.
+    required: false
+    default: "generic"
   baseline-branch:
-    description: Branch whose last successful workflow run is the previous JSON (PR base, else main).
+    description: Branch whose last successful workflow run is the previous JSON (PR base, else default branch).
     required: false
     default: ""
   artifact-name:
@@ -32,11 +36,11 @@ inputs:
     required: false
     default: "helix-verify-json"
   comment:
-    description: Post or update a PR comment. Ignored when there is no pull_request event.
+    description: Post or update a PR comment. Ignored when there is no pull_request event. Comment failure never fails the job.
     required: false
     default: "true"
   fail-on-regression:
-    description: "If true, fail the job only when a check went PASS → FAIL. Known FAILs do not fail the job. Bench warnings never fail the job."
+    description: "If true, fail the job only on NEW_FAIL (PASS → FAIL/ERROR at stable Helix id). Known failures, skips, bench warnings, and identified infra do not fail the job."
     required: false
     default: "true"
   bench-baseline:
@@ -64,26 +68,36 @@ inputs:
     required: false
     default: "true"
   github-token:
-    description: Token for checkout (public), baseline artifacts (actions:read), and PR comments (pull-requests:write).
+    description: Job token for baseline artifact download (actions:read) and PR comments (pull-requests:write). Not passed into Helix/HelixTest checkouts.
     required: false
     default: ${{ github.token }}
+  source-token:
+    description: Optional token with contents:read on SynapticFour/Helix and HelixTest when those repos are private. Leave empty for public clones. Never a broad PAT.
+    required: false
+    default: ""
 
 outputs:
   json-path:
-    description: Path to the current helix verify JSON
+    description: Path to the current helix verify JSON (VerificationRun)
     value: ${{ steps.verify.outputs.json-path }}
   regression:
-    description: "true if any PASS → FAIL vs baseline"
+    description: "true if the job should fail for NEW_FAIL (not infra unreachable, not known failures)"
     value: ${{ steps.compare.outputs.regression }}
-  current-score:
-    description: Current X/Y executed checks
-    value: ${{ steps.compare.outputs.current_score }}
-  previous-score:
-    description: Previous X/Y, or 0/0 when none
-    value: ${{ steps.compare.outputs.previous_score }}
+  new-fail:
+    description: Count of NEW_FAIL rows (PASS → FAIL/ERROR at stable id)
+    value: ${{ steps.compare.outputs.new_fail }}
+  fixed:
+    description: Count of FIXED rows (FAIL/ERROR → PASS)
+    value: ${{ steps.compare.outputs.fixed }}
+  unchanged-fail:
+    description: Count of UNCHANGED_FAIL rows (existing failures)
+    value: ${{ steps.compare.outputs.unchanged_fail }}
   bench-warning:
     description: "true if helix bench ran and a metric exceeded the threshold (informational; never fails the job)"
     value: ${{ steps.compare.outputs.bench_warning }}
+  infra-unreachable:
+    description: "true if every executed check is ERROR unreachable (infrastructure; does not fail the job)"
+    value: ${{ steps.compare.outputs.infra_unreachable }}
 
 runs:
   using: composite
@@ -102,7 +116,8 @@ runs:
         repository: SynapticFour/Helix
         ref: ${{ inputs.helix-ref }}
         path: .helix-action-build/helix-src
-        token: ${{ inputs.github-token }}
+        persist-credentials: false
+        token: ${{ inputs.source-token != '' && inputs.source-token || github.token }}
 
     - name: Checkout HelixTest (sibling of Helix, D1)
       if: ${{ inputs.run != 'false' && inputs.helix-bin == '' }}
@@ -111,7 +126,8 @@ runs:
         repository: SynapticFour/HelixTest
         ref: ${{ inputs.helixtest-ref }}
         path: .helix-action-build/HelixTest
-        token: ${{ inputs.github-token }}
+        persist-credentials: false
+        token: ${{ inputs.source-token != '' && inputs.source-token || github.token }}
 
     - name: Install Rust
       if: ${{ inputs.run != 'false' && inputs.helix-bin == '' }}
@@ -125,11 +141,17 @@ runs:
       working-directory: ${{ github.workspace }}/.helix-action-build/helix-src
       env:
         CARGO_TARGET_DIR: ${{ runner.temp }}/helix-target
+        HELIX_REF: ${{ inputs.helix-ref }}
+        HELIXTEST_REF: ${{ inputs.helixtest-ref }}
       run: |
         set -euo pipefail
+        if [[ ! "${HELIX_REF}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+          echo "::warning::helix-ref '${HELIX_REF}' is not a 40-character SHA. Pin a Helix commit that emits VerificationRun and includes helix compare. Floating main is a development default only. There is no Helix release tag yet."
+        fi
+        echo "HelixTest pin: ${HELIXTEST_REF} (expected SHA 1832c043e1679ec283cb2113510ee33684317cce / tag v0.1.3)"
         if [[ ! -f src/verify.rs ]]; then
-          echo "Helix ref '${{ inputs.helix-ref }}' has no helix verify CLI (src/verify.rs missing)." >&2
-          echo "Push Helix Stage 1 commits, then pin helix-ref to that SHA." >&2
+          echo "Helix ref '${HELIX_REF}' has no helix verify CLI (src/verify.rs missing)." >&2
+          echo "Pin helix-ref to a SHA that includes helix verify." >&2
           exit 1
         fi
         cargo build --release --bin helix
@@ -142,6 +164,7 @@ runs:
       env:
         HELIX_BIN_INPUT: ${{ inputs.helix-bin }}
         ENDPOINT: ${{ inputs.endpoint }}
+        HELIX_PROFILE: ${{ inputs.profile }}
         CARGO_TARGET_DIR: ${{ runner.temp }}/helix-target
         RUST_LOG: error
       run: |
@@ -154,9 +177,14 @@ runs:
           HELIX="${CARGO_TARGET_DIR}/release/helix"
         fi
         chmod +x "$HELIX" || true
-        echo "Running: $HELIX verify ${ENDPOINT} --format json"
+        if [[ ! -x "$HELIX" && ! -f "$HELIX" ]]; then
+          echo "helix binary not found at ${HELIX}" >&2
+          exit 1
+        fi
+        echo "HELIX=${HELIX}" >> "$GITHUB_ENV"
+        echo "Running: $HELIX verify ${ENDPOINT} --profile ${HELIX_PROFILE} --format json"
         set +e
-        "$HELIX" verify "${ENDPOINT}" --format json >"$JSON" 2>"${JSON}.stderr"
+        "$HELIX" verify "${ENDPOINT}" --profile "${HELIX_PROFILE}" --format json >"$JSON" 2>"${JSON}.stderr"
         ec=$?
         set -e
         if [[ "$ec" -gt 1 ]]; then
@@ -164,11 +192,28 @@ runs:
           cat "${JSON}.stderr" >&2 || true
           exit "$ec"
         fi
-        python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$JSON"
+        python3 -c '
+import json, sys
+path = sys.argv[1]
+try:
+    data = json.load(open(path, encoding="utf-8"))
+except Exception as e:
+    print("helix verify did not emit JSON:", e, file=sys.stderr)
+    sys.exit(2)
+if not isinstance(data, dict):
+    print("helix verify JSON is not an object", file=sys.stderr)
+    sys.exit(2)
+if "services" in data and "executed" not in data:
+    print("helix verify emitted HelixTest OverallReport; pin helix-ref to a SHA that emits VerificationRun", file=sys.stderr)
+    sys.exit(2)
+if not isinstance(data.get("executed"), list) or not isinstance(data.get("skipped"), list):
+    print("helix verify JSON is not a Helix VerificationRun", file=sys.stderr)
+    sys.exit(2)
+' "$JSON"
         echo "json-path=$JSON" >> "$GITHUB_OUTPUT"
         echo "HELIX_VERIFY_JSON=$JSON" >> "$GITHUB_ENV"
         echo "HELIX_VERIFY_DIR=$(dirname "$JSON")" >> "$GITHUB_ENV"
-        echo "helix verify wrote JSON (process exit ${ec}; action does not treat known FAILs as job failure)"
+        echo "helix verify wrote VerificationRun JSON (process exit ${ec}; known FAILs are not a job failure)"
 
     - name: Require both bench URLs
       if: ${{ inputs.run != 'false' && ((inputs.bench-baseline != '' && inputs.bench-candidate == '') || (inputs.bench-baseline == '' && inputs.bench-candidate != '')) }}
@@ -198,18 +243,31 @@ runs:
         fi
         JSON="${HELIX_VERIFY_DIR}/helix-bench.json"
         if ! "$HELIX" bench --help >/dev/null 2>&1; then
-          echo "helix-ref has no 'helix bench'. Pin helix-ref to a SHA that includes the Stage 4 CLI." >&2
-          exit 1
+          echo "helix-ref has no 'helix bench'. Skipping bench (does not fail this job)." >&2
+          exit 0
         fi
         echo "Running: $HELIX bench --baseline ${BENCH_BASELINE} --candidate ${BENCH_CANDIDATE}"
+        set +e
         "$HELIX" bench \
           --baseline "${BENCH_BASELINE}" \
           --candidate "${BENCH_CANDIDATE}" \
           --baseline-label "${BENCH_BASELINE_LABEL}" \
           --candidate-label "${BENCH_CANDIDATE_LABEL}" \
           --threshold "${BENCH_THRESHOLD}" \
-          --format json >"$JSON"
-        python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$JSON"
+          --format json >"$JSON" 2>"${JSON}.stderr"
+        bench_ec=$?
+        set -e
+        if [[ "$bench_ec" -ne 0 ]]; then
+          echo "helix bench exited ${bench_ec}; ignoring (bench never fails this job)" >&2
+          cat "${JSON}.stderr" >&2 || true
+          rm -f "$JSON"
+          exit 0
+        fi
+        if ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$JSON"; then
+          echo "helix bench JSON unreadable; ignoring (bench never fails this job)" >&2
+          rm -f "$JSON"
+          exit 0
+        fi
         echo "HELIX_BENCH_JSON=$JSON" >> "$GITHUB_ENV"
         echo "helix bench wrote JSON (warnings do not fail this job)"
 
@@ -244,22 +302,19 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
         set -euo pipefail
-        COMMENT="${RUNNER_TEMP}/helix-verify-comment.md"
-        args=(--current "${HELIX_VERIFY_JSON}" --comment-out "$COMMENT" --github-output "$GITHUB_OUTPUT")
-        if [[ -n "${HELIX_VERIFY_PREVIOUS:-}" && -f "${HELIX_VERIFY_PREVIOUS}" ]]; then
-          args+=(--previous "${HELIX_VERIFY_PREVIOUS}")
-        fi
-        if [[ -n "${HELIX_BENCH_JSON:-}" && -f "${HELIX_BENCH_JSON}" ]]; then
-          args+=(--bench-json "${HELIX_BENCH_JSON}")
-        fi
+        export HELIX_COMMENT_FILE="${RUNNER_TEMP}/helix-verify-comment.md"
+        echo "HELIX_COMMENT_FILE=${HELIX_COMMENT_FILE}" >> "$GITHUB_ENV"
+        chmod +x "${GITHUB_ACTION_PATH}/scripts/run_compare.sh"
         set +e
-        python3 "${GITHUB_ACTION_PATH}/scripts/compare_reports.py" "${args[@]}"
+        "${GITHUB_ACTION_PATH}/scripts/run_compare.sh"
         cmp_ec=$?
         set -e
         echo "HELIX_COMPARE_EC=${cmp_ec}" >> "$GITHUB_ENV"
-        echo "HELIX_COMMENT_FILE=${COMMENT}" >> "$GITHUB_ENV"
-        cat "$COMMENT" >> "$GITHUB_STEP_SUMMARY"
+        if [[ -f "${HELIX_COMMENT_FILE}" ]]; then
+          cat "${HELIX_COMMENT_FILE}" >> "$GITHUB_STEP_SUMMARY"
+        fi
         if [[ "$cmp_ec" -gt 1 ]]; then
+          echo "Helix compare runtime error (exit ${cmp_ec})" >&2
           exit "$cmp_ec"
         fi
 
@@ -274,16 +329,20 @@ runs:
         chmod +x "${GITHUB_ACTION_PATH}/scripts/post_pr_comment.sh"
         "${GITHUB_ACTION_PATH}/scripts/post_pr_comment.sh" "${HELIX_COMMENT_FILE}"
 
-    - name: Fail only on PASS to FAIL
+    - name: Fail only on new verification regressions
       if: ${{ inputs.run != 'false' && inputs.fail-on-regression == 'true' }}
       shell: bash
       run: |
         set -euo pipefail
         if [[ "${HELIX_COMPARE_EC:-0}" -eq 1 ]]; then
-          echo "Helix regression: at least one check went PASS → FAIL." >&2
+          echo "Helix regression: at least one check went PASS → FAIL/ERROR at a stable id (NEW_FAIL)." >&2
+          echo "Not a score drop. Known failures and skips did not fail this job." >&2
           exit 1
         fi
-        echo "No PASS → FAIL regressions (known FAILs and skips do not fail this job)."
+        echo "No new verification regressions (NEW_FAIL). Known failures, skips, missing baseline, and bench warnings do not fail this job."
         if [[ "${{ steps.compare.outputs.bench_warning }}" == "true" ]]; then
           echo "Helix bench warned (threshold); that is informational and did not fail this job."
+        fi
+        if [[ "${{ steps.compare.outputs.infra_unreachable }}" == "true" ]]; then
+          echo "Target was unreachable; treated as infrastructure, not a verification regression."
         fi

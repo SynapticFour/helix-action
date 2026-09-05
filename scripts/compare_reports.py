@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Compare two Helix / HelixTest OverallReport JSON files.
+"""Compare Helix VerificationRun JSON at stable check id.
 
-Regression = a check that was status=pass previously and status=fail now.
-Skip is never pass. Known FAILs (fail→fail) are not regressions.
+Regression = NEW_FAIL (previous pass, current fail or error).
+Not a score drop. Skip is never pass. SKIP→PASS is FIXED_SKIP.
+Known failures (UNCHANGED_FAIL) are not regressions.
 Not GA4GH certification. Not HELIOS evidence.
+
+Mirrors Helix `src/compare.rs` / `docs/REGRESSION.md` so this repo's CI can
+test comments without compiling Helix. The GitHub Action prefers
+`helix compare --format json` when the pinned CLI has that subcommand.
 """
 from __future__ import annotations
 
@@ -12,172 +17,282 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
-API_ORDER = ("Drs", "Wes", "Tes", "Trs", "Htsget", "Beacon", "Auth")
-API_LABEL = {
-    "Drs": "DRS",
-    "Wes": "WES",
-    "Tes": "TES",
-    "Trs": "TRS",
-    "Htsget": "htsget",
-    "Beacon": "Beacon",
-    "Auth": "Auth",
-    "Age": "Age",
-    "Crypt4gh": "Crypt4GH",
-    "E2e": "E2E",
-    "Africa": "Africa",
-    "Infra": "Infra",
-}
-
-EXECUTED = {"pass", "fail"}
+BLOCKING = frozenset({"fail", "error"})
+EXECUTED = frozenset({"pass", "fail", "error"})
 
 
-def load_report(path: Path) -> dict[str, Any]:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or "services" not in data:
-        raise ValueError(f"{path} is not a HelixTest OverallReport (missing services)")
+def load_json(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        die(f"{path} is not readable JSON: {e}", 2)
+    if not isinstance(data, dict):
+        die(f"{path} is not a JSON object", 2)
     return data
 
 
-def _service_name(raw: Any) -> str:
-    if isinstance(raw, str):
-        return raw
-    return str(raw)
+def try_load_json(path: Path) -> dict[str, Any] | None:
+    """Best-effort load for a baseline artifact. Corrupt previous is infra, not a fail."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
-def iter_tests(report: dict[str, Any]) -> Iterable[tuple[str, str, str]]:
-    for svc in report.get("services") or []:
-        service = _service_name(svc.get("service", ""))
-        for t in svc.get("tests") or []:
-            name = str(t.get("name") or "")
-            status = str(t.get("status") or "").lower()
-            if not name:
-                continue
-            yield service, name, status
+def is_verification_run(data: dict[str, Any]) -> bool:
+    return isinstance(data.get("executed"), list) and isinstance(
+        data.get("skipped"), list
+    )
 
 
-def test_index(report: dict[str, Any]) -> dict[tuple[str, str], str]:
-    return {(s, n): st for s, n, st in iter_tests(report)}
+def is_overall_report(data: dict[str, Any]) -> bool:
+    return "services" in data and not is_verification_run(data)
 
 
-def score(report: dict[str, Any] | None) -> tuple[int, int]:
-    if not report:
-        return (0, 0)
-    passed = failed = 0
-    for _s, _n, status in iter_tests(report):
-        if status == "pass":
-            passed += 1
-        elif status == "fail":
-            failed += 1
-    return passed, passed + failed
+def is_compare_report(data: dict[str, Any]) -> bool:
+    return "has_regression" in data and isinstance(data.get("rows"), list)
 
 
-def service_verdict(report: dict[str, Any], service: str) -> str:
-    tests = [
-        st
-        for s, _n, st in iter_tests(report)
-        if s == service
-    ]
-    executed = [st for st in tests if st in EXECUTED]
-    if executed:
-        return "FAIL" if any(st == "fail" for st in executed) else "PASS"
-    for skipped in report.get("skipped_services") or []:
-        if _service_name(skipped.get("service")) == service:
-            return "SKIP"
-    if tests:
-        return "SKIP"
-    return "SKIP"
+def is_bench_outcome(data: dict[str, Any]) -> bool:
+    return "warning" in data and "diff" in data
 
 
-def api_list(report: dict[str, Any]) -> list[str]:
-    seen: list[str] = []
-    for svc in report.get("services") or []:
-        name = _service_name(svc.get("service", ""))
-        if name and name not in seen:
-            seen.append(name)
-    for skipped in report.get("skipped_services") or []:
-        name = _service_name(skipped.get("service"))
-        if name and name not in seen:
-            seen.append(name)
-
-    def sort_key(name: str) -> tuple[int, str]:
-        try:
-            return (API_ORDER.index(name), name)
-        except ValueError:
-            return (len(API_ORDER), name)
-
-    seen.sort(key=sort_key)
-    parts = []
-    for name in seen:
-        label = API_LABEL.get(name, name.upper() if name else name)
-        parts.append(f"{label}: {service_verdict(report, name)}")
-    return parts
-
-
-def regressions(previous: dict[str, Any] | None, current: dict[str, Any]) -> list[dict[str, str]]:
-    if previous is None:
-        return []
-    prev = test_index(previous)
-    cur = test_index(current)
-    out = []
-    for key, prev_status in prev.items():
-        if prev_status != "pass":
-            continue
-        now = cur.get(key)
-        if now == "fail":
-            service, name = key
-            out.append(
-                {
-                    "service": API_LABEL.get(service, service),
-                    "name": name,
-                    "previous": prev_status,
-                    "current": now,
-                }
-            )
-    out.sort(key=lambda r: (r["service"], r["name"]))
+def iter_results(run: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for key in ("executed", "skipped"):
+        for row in run.get(key) or []:
+            if isinstance(row, dict) and row.get("id"):
+                out.append(row)
     return out
 
 
-def comment_line(previous: dict[str, Any] | None, current: dict[str, Any]) -> str:
-    px, py = score(previous)
-    cx, cy = score(current)
-    prev_s = "n/a" if previous is None else f"{px}/{py}"
-    apis = ", ".join(api_list(current)) or "(no APIs)"
-    return f"Helix Verification — Previous: {prev_s} | Current: {cx}/{cy} | {apis}"
+def index_by_id(run: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    idx: dict[str, dict[str, Any]] = {}
+    for row in iter_results(run):
+        i = str(row["id"])
+        if i in idx:
+            raise ValueError(f"duplicate check id `{i}`")
+        idx[i] = row
+    return idx
+
+
+def classify(previous: str | None, current: str | None) -> str:
+    """Same table as Helix `compare::classify`."""
+    prev = (previous or "").lower() or None
+    curr = (current or "").lower() or None
+    if prev == "pass" and curr == "pass":
+        return "UNCHANGED_PASS"
+    if prev == "pass" and curr in BLOCKING:
+        return "NEW_FAIL"
+    if prev == "pass" and curr in (None, "skip"):
+        return "NEW_SKIP"
+    if prev in BLOCKING and curr == "pass":
+        return "FIXED"
+    if prev in BLOCKING and curr in BLOCKING:
+        return "UNCHANGED_FAIL"
+    if prev in BLOCKING and curr in (None, "skip"):
+        return "NEW_SKIP"
+    if prev == "skip" and curr in EXECUTED:
+        return "FIXED_SKIP"
+    if prev == "skip" and curr in (None, "skip"):
+        return "UNCHANGED_SKIP"
+    if prev is None:
+        return "ADDED"
+    return "ADDED"
+
+
+def compare_runs(
+    previous: dict[str, Any] | None, current: dict[str, Any]
+) -> dict[str, Any]:
+    if previous is None:
+        rows: list[dict[str, Any]] = []
+        for row in iter_results(current):
+            st = str(row.get("status") or "").lower()
+            rows.append(
+                {
+                    "id": row["id"],
+                    "code": row.get("code") or "",
+                    "kind": "ADDED",
+                    "previous": None,
+                    "current": st,
+                    "regression": False,
+                    "skip_became_pass": False,
+                }
+            )
+        rows.sort(key=lambda r: r["id"])
+        return _report("", current.get("target", {}).get("url", ""), rows)
+
+    prev_idx = index_by_id(previous)
+    curr_idx = index_by_id(current)
+    ids = sorted(set(prev_idx) | set(curr_idx))
+    rows = []
+    for i in ids:
+        prev = prev_idx.get(i)
+        curr = curr_idx.get(i)
+        prev_st = str(prev["status"]).lower() if prev else None
+        curr_st = str(curr["status"]).lower() if curr else None
+        kind = classify(prev_st, curr_st)
+        src = curr or prev or {}
+        skip_became_pass = prev_st == "skip" and curr_st == "pass"
+        rows.append(
+            {
+                "id": i,
+                "code": src.get("code") or "",
+                "kind": kind,
+                "previous": prev_st,
+                "current": curr_st,
+                "regression": kind == "NEW_FAIL",
+                "skip_became_pass": skip_became_pass,
+            }
+        )
+    prev_url = previous.get("target", {}).get("url", "")
+    curr_url = current.get("target", {}).get("url", "")
+    return _report(prev_url, curr_url, rows)
+
+
+def _report(prev_url: str, curr_url: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    summary = {
+        "new_fail": 0,
+        "fixed": 0,
+        "unchanged_fail": 0,
+        "unchanged_pass": 0,
+        "new_skip": 0,
+        "fixed_skip": 0,
+        "unchanged_skip": 0,
+        "added": 0,
+        "skip_became_pass": 0,
+    }
+    key = {
+        "NEW_FAIL": "new_fail",
+        "FIXED": "fixed",
+        "UNCHANGED_FAIL": "unchanged_fail",
+        "UNCHANGED_PASS": "unchanged_pass",
+        "NEW_SKIP": "new_skip",
+        "FIXED_SKIP": "fixed_skip",
+        "UNCHANGED_SKIP": "unchanged_skip",
+        "ADDED": "added",
+    }
+    for row in rows:
+        summary[key[row["kind"]]] += 1
+        if row.get("skip_became_pass"):
+            summary["skip_became_pass"] += 1
+    return {
+        "helix_version": "action",
+        "previous_target": prev_url,
+        "current_target": curr_url,
+        "has_regression": summary["new_fail"] > 0,
+        "summary": summary,
+        "rows": rows,
+    }
+
+
+def all_unreachable(run: dict[str, Any]) -> bool:
+    """True when every executed row is error mentioning unreachable (infra)."""
+    executed = [r for r in (run.get("executed") or []) if isinstance(r, dict)]
+    if not executed:
+        return False
+    for row in executed:
+        if str(row.get("status") or "").lower() != "error":
+            return False
+        msg = str(row.get("message") or "").lower()
+        if "unreachable" not in msg:
+            return False
+    return True
 
 
 def render_comment(
-    previous: dict[str, Any] | None,
-    current: dict[str, Any],
+    report: dict[str, Any],
+    *,
     bench: dict[str, Any] | None = None,
+    notes: list[str] | None = None,
 ) -> str:
-    regs = regressions(previous, current)
+    s = report.get("summary") or {}
+    new_fail = int(s.get("new_fail") or 0)
+    fixed = int(s.get("fixed") or 0)
+    existing = int(s.get("unchanged_fail") or 0)
     lines = [
         "<!-- helix-verification -->",
-        comment_line(previous, current),
+        "# Helix verification",
         "",
-        "Helix tests behavior against the GA4GH spec, independent of implementation. "
-        "Ferrum is used as a reference target, not a dependency. Not GA4GH certification. "
-        "The job fails only on real regressions (PASS → FAIL), not on already-known FAILs. "
-        "Skips are not passes. Not HELIOS.",
+        "Stable check **id** (not a score). Ferrum is a reference target, not a dependency. "
+        "Not GA4GH certification. Skips are not passes. Not HELIOS.",
+        "",
+        f"**New regressions:** {new_fail}  ",
+        f"**Fixed failures:** {fixed}  ",
+        f"**Existing failures:** {existing}",
+        "",
     ]
-    if previous is None:
-        lines += ["", "_No previous successful run on the baseline branch — nothing to regress against._"]
-    if regs:
-        lines += ["", "**Regressions (PASS → FAIL)**"]
-        for r in regs:
-            lines.append(f"- {r['service']} / {r['name']}")
+    if new_fail:
+        lines += ["## New regressions", ""]
+        for row in report.get("rows") or []:
+            if row.get("kind") != "NEW_FAIL":
+                continue
+            lines.append(_row_line(row))
+        lines.append("")
+    else:
+        lines += ["_No new regressions (PASS → FAIL/ERROR at stable id)._", ""]
+
+    lines += ["## Fixed failures", ""]
+    fixed_rows = [r for r in report.get("rows") or [] if r.get("kind") == "FIXED"]
+    if fixed_rows:
+        for row in fixed_rows:
+            lines.append(_row_line(row))
+    else:
+        lines.append("_None._")
+    lines.append("")
+
+    lines += ["## Existing failures", ""]
+    exist_rows = [
+        r for r in report.get("rows") or [] if r.get("kind") == "UNCHANGED_FAIL"
+    ]
+    if exist_rows:
+        for row in exist_rows:
+            lines.append(_row_line(row))
+    else:
+        lines.append("_None._")
+    lines.append("")
+
+    skip_pass = [
+        r for r in report.get("rows") or [] if r.get("skip_became_pass")
+    ]
+    if skip_pass:
+        lines += [
+            "## SKIP became PASS",
+            "",
+            "Not a silent pass (`FIXED_SKIP`, never `UNCHANGED_PASS`).",
+            "",
+        ]
+        for row in skip_pass:
+            lines.append(_row_line(row))
+        lines.append("")
+
+    if notes:
+        lines += ["## Notes", ""]
+        for n in notes:
+            lines.append(f"- {n}")
+        lines.append("")
+
     if bench is not None:
         lines.extend(render_bench_section(bench))
+
+    lines.append(
+        "Job fails only on new regressions or explicit runtime errors. "
+        "Known failures, skips, and bench warnings do not fail the job. "
+        "Not a required Ferrum check."
+    )
     return "\n".join(lines) + "\n"
 
 
-def load_bench(path: Path) -> dict[str, Any]:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or "warning" not in data or "diff" not in data:
-        raise ValueError(f"{path} is not a Helix BenchOutcome (missing warning/diff)")
-    return data
+def _row_line(row: dict[str, Any]) -> str:
+    prev = row.get("previous") or "absent"
+    curr = row.get("current") or "absent"
+    code = row.get("code") or ""
+    ident = row.get("id") or ""
+    extra = f" (`{code}`)" if code else ""
+    return f"- `{ident}`{extra} {prev} → {curr}"
 
 
 def _fmt_pct(pct: Any) -> str:
@@ -194,7 +309,6 @@ def render_bench_section(bench: dict[str, Any]) -> list[str]:
     baseline = bench.get("baseline") or {}
     candidate = bench.get("candidate") or {}
     lines = [
-        "",
         "## Helix bench (warn only — does not fail this job)",
         "",
         "3 small GETs (not Demo hap.py / GIAB, not HELIOS). "
@@ -221,52 +335,144 @@ def render_bench_section(bench: dict[str, Any]) -> list[str]:
             lines.append(f"- {w}")
     else:
         lines += ["", "_No metric exceeded the warning threshold._"]
+    lines.append("")
     return lines
+
+
+def headline(report: dict[str, Any]) -> str:
+    s = report.get("summary") or {}
+    return (
+        f"Helix verification — new regressions: {s.get('new_fail', 0)}; "
+        f"fixed: {s.get('fixed', 0)}; existing failures: {s.get('unchanged_fail', 0)}"
+    )
+
+
+def write_github_output(
+    path: Path,
+    report: dict[str, Any],
+    bench: dict[str, Any] | None,
+    *,
+    job_regression: bool,
+    infra_unreachable: bool,
+) -> None:
+    s = report.get("summary") or {}
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(f"regression={'true' if job_regression else 'false'}\n")
+        fh.write(f"new_fail={int(s.get('new_fail') or 0)}\n")
+        fh.write(f"fixed={int(s.get('fixed') or 0)}\n")
+        fh.write(f"unchanged_fail={int(s.get('unchanged_fail') or 0)}\n")
+        fh.write(f"infra_unreachable={'true' if infra_unreachable else 'false'}\n")
+        fh.write(
+            f"bench_warning={'true' if bench is not None and bench.get('warning') else 'false'}\n"
+        )
+
+
+def die(message: str, code: int = 2) -> None:
+    print(message, file=sys.stderr)
+    raise SystemExit(code)
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--current", required=True, type=Path)
+    p.add_argument("--current", type=Path, default=None)
     p.add_argument("--previous", type=Path, default=None)
-    p.add_argument("--comment-out", type=Path, default=None)
-    p.add_argument("--github-output", type=Path, default=None)
     p.add_argument(
-        "--bench-json",
+        "--compare-json",
         type=Path,
         default=None,
-        help="Optional helix bench JSON. Appended to the comment; never changes the exit code.",
+        help="Precomputed helix compare JSON (preferred).",
+    )
+    p.add_argument("--comment-out", type=Path, default=None)
+    p.add_argument("--github-output", type=Path, default=None)
+    p.add_argument("--bench-json", type=Path, default=None)
+    p.add_argument(
+        "--note",
+        action="append",
+        default=[],
+        help="Extra comment note (repeatable). Used by the Action wrapper.",
     )
     args = p.parse_args(argv)
 
-    current = load_report(args.current)
-    previous = None
-    if args.previous is not None and args.previous.is_file():
-        previous = load_report(args.previous)
+    notes: list[str] = list(args.note)
+    report: dict[str, Any]
+    current: dict[str, Any] | None = None
+
+    if args.current is not None:
+        current = load_json(args.current)
+        if is_overall_report(current):
+            die(
+                f"{args.current} is HelixTest OverallReport; "
+                "helix-action needs helix verify VerificationRun JSON"
+            )
+        if not is_verification_run(current):
+            die(f"{args.current} is not a Helix VerificationRun")
+
+    if args.compare_json is not None:
+        report = load_json(args.compare_json)
+        if not is_compare_report(report):
+            die(f"{args.compare_json} is not a Helix CompareReport")
+    else:
+        if current is None:
+            die("--current or --compare-json is required")
+
+        previous = None
+        if args.previous is not None and args.previous.is_file():
+            prev_data = try_load_json(args.previous)
+            if prev_data is None:
+                notes.append(
+                    "Previous artifact is not readable JSON; ignored "
+                    "(infrastructure). This run becomes the new baseline."
+                )
+            elif is_overall_report(prev_data):
+                notes.append(
+                    "Previous artifact is HelixTest OverallReport; ignored "
+                    "(not comparable at stable Helix id). This run becomes the new baseline."
+                )
+            elif is_verification_run(prev_data):
+                previous = prev_data
+            else:
+                notes.append("Previous artifact is not a VerificationRun; ignored.")
+
+        if previous is None and not any("No previous VerificationRun" in n for n in notes):
+            notes.append(
+                "No previous VerificationRun on the baseline branch — nothing to regress against."
+            )
+
+        report = compare_runs(previous, current)
 
     bench = None
     if args.bench_json is not None:
-        bench = load_bench(args.bench_json)
+        bench = load_json(args.bench_json)
+        if not is_bench_outcome(bench):
+            die(f"{args.bench_json} is not a Helix BenchOutcome")
 
-    regs = regressions(previous, current)
-    comment = render_comment(previous, current, bench)
+    infra = bool(current is not None and all_unreachable(current))
+    if infra:
+        notes.insert(
+            0,
+            "All executed checks are ERROR unreachable. Treated as infrastructure "
+            "(stack not reachable from the runner), not a job-failing verification regression.",
+        )
+
+    comment = render_comment(report, bench=bench, notes=notes)
     if args.comment_out:
         args.comment_out.write_text(comment, encoding="utf-8")
-    print(comment_line(previous, current))
+    print(headline(report))
 
+    # Job-failing regression = NEW_FAIL, except clearly identified unreachable infra.
+    job_regression = bool(report.get("has_regression")) and not infra
     if args.github_output:
-        go = args.github_output
-        with go.open("a", encoding="utf-8") as fh:
-            fh.write(f"has_previous={'true' if previous is not None else 'false'}\n")
-            fh.write(f"regression={'true' if regs else 'false'}\n")
-            fh.write(f"regression_count={len(regs)}\n")
-            px, py = score(previous)
-            cx, cy = score(current)
-            fh.write(f"previous_score={px}/{py}\n")
-            fh.write(f"current_score={cx}/{cy}\n")
-            if bench is not None:
-                fh.write(f"bench_warning={'true' if bench.get('warning') else 'false'}\n")
+        write_github_output(
+            args.github_output,
+            report,
+            bench,
+            job_regression=job_regression,
+            infra_unreachable=infra,
+        )
 
-    return 1 if regs else 0
+    # Exit 1 only on NEW_FAIL that is not unreachable infra.
+    # Bench, skips, existing fails, missing/stale baseline: 0. Bad JSON: 2.
+    return 1 if job_regression else 0
 
 
 if __name__ == "__main__":

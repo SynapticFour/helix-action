@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 # Download helix-verify.json from the last successful run of this workflow on BASELINE_BRANCH.
+# Missing gh, token, or artifact is infrastructure: never fail the job.
 set -euo pipefail
 OUT_DIR="${1:?usage: fetch_baseline.sh OUT_DIR}"
 mkdir -p "$OUT_DIR"
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "gh CLI not available; no baseline" >&2
+  exit 0
+fi
+if [[ -z "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ]]; then
+  echo "No GH_TOKEN; no baseline" >&2
   exit 0
 fi
 

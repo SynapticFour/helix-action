@@ -1,0 +1,53 @@
+# Helix verify pilot (example caller)
+
+# Copy into a consumer repo (Ferrum test branch only). HelixTest already
+# runs on Ferrum `main` via tagged HelixTest; this Action is extra visibility.
+#
+# Not a required Ferrum check. Do not add this as a required status on
+# Ferrum `main`. Pilot branch: `ci/helix-verify-pilot`.
+#
+# Helix productizes HelixTest. Results are not GA4GH certification.
+# Skips are not passes. Not HELIOS (no RO-Crate / PDF / signatures).
+# The action does not start Ferrum; bring the stack up in this job.
+
+name: Helix verify pilot
+
+on:
+  pull_request:
+    branches: [ci/helix-verify-pilot]
+  workflow_dispatch:
+
+# Least privilege. Do not add contents:write, workflows, or a repo-scoped PAT.
+permissions:
+  contents: read          # this repo's checkout (your stack), not a Helix PAT
+  actions: read           # download the last successful baseline artifact
+  pull-requests: write    # upsert the Helix verification comment
+
+jobs:
+  helix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Start your stack here (Ferrum compose / make up). The action will not
+      # do it. A fully unreachable target is treated as infrastructure, not a
+      # verification regression.
+
+      - uses: SynapticFour/helix-action@SHA   # pin this action at a commit SHA
+        with:
+          endpoint: http://127.0.0.1:8080
+          # Pin Helix at a SHA that emits VerificationRun and includes
+          # `helix compare`. There is no Helix release tag yet. Floating
+          # `main` is a development default and the action will warn.
+          helix-ref: main
+          # HelixTest v0.1.3 (same SHA as Helix/Ferrum VERSIONS.lock)
+          helixtest-ref: 1832c043e1679ec283cb2113510ee33684317cce
+          profile: generic
+          # optional Stage 4 scaffold (never fails the job):
+          # bench-baseline: http://127.0.0.1:8080
+          # bench-candidate: http://127.0.0.1:8080
+
+      # Do not pass a broad PAT. Default github-token is the job GITHUB_TOKEN.
+      # source-token is only for private Helix/HelixTest clones (contents:read).

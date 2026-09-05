@@ -1,4 +1,8 @@
 # Prove compare-script + action metadata. Does not start Ferrum. Not GA4GH certification.
+#
+# This workflow is the in-repo fixture: it runs the classifier against
+# committed VerificationRun JSON (no live stack) and loads the composite
+# action with `run: false` so the YAML stays valid.
 
 name: CI
 
@@ -8,15 +12,37 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   compare-script:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Action metadata exists
-        run: test -f action.yml && test -f README.md && test -f LICENSE
+        run: |
+          test -f action.yml
+          test -f README.md
+          test -f LICENSE
+          test -f VERSIONS.lock
+          test -f docs/PERMISSIONS.md
+          test -f examples/helix-verify-pilot.yml
       - name: Compare-script unit tests
         run: python3 -m unittest discover -s tests -v
+      - name: Fixture comment (VerificationRun, not a score)
+        run: |
+          python3 scripts/compare_reports.py \
+            --previous tests/fixtures/mixed_previous.json \
+            --current tests/fixtures/mixed_current.json \
+            --comment-out "$RUNNER_TEMP/helix-comment.md"
+          grep -q 'New regressions' "$RUNNER_TEMP/helix-comment.md"
+          grep -q 'Fixed failures' "$RUNNER_TEMP/helix-comment.md"
+          grep -q 'Existing failures' "$RUNNER_TEMP/helix-comment.md"
+          ! grep -E 'Previous:[[:space:]]*[0-9]+/[0-9]+' "$RUNNER_TEMP/helix-comment.md"
+          cat "$RUNNER_TEMP/helix-comment.md" >> "$GITHUB_STEP_SUMMARY"
       - uses: ./
         with:
           run: "false"

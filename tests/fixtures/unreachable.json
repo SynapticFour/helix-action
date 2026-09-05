@@ -1,0 +1,39 @@
+{
+  "helix_version": "0.1.0",
+  "helixtest_version": "v0.1.3",
+  "helixtest_sha": "1832c043e1679ec283cb2113510ee33684317cce",
+  "profile": "generic",
+  "timestamp": "2026-09-04T12:00:04Z",
+  "target": { "url": "http://127.0.0.1:9" },
+  "discovery": [],
+  "executed": [
+    {
+      "id": "drs.object.reachable",
+      "code": "HLX-DRS-001",
+      "name": "DRS object endpoint is reachable",
+      "service": "drs",
+      "category": "robustness",
+      "status": "error",
+      "severity": "error",
+      "message": "target unreachable"
+    },
+    {
+      "id": "drs.object.schema",
+      "code": "HLX-DRS-002",
+      "name": "DRS object matches OpenAPI and has access methods",
+      "service": "drs",
+      "category": "schema",
+      "status": "error",
+      "severity": "error",
+      "message": "target unreachable"
+    }
+  ],
+  "skipped": [],
+  "summary": {
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "errors": 2,
+    "total": 2
+  }
+}
