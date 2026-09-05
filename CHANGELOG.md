@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Default `helix-ref` is the Helix origin/main freeze SHA `26a3209bdbde8ea48d9e6024658fdfb8213d7258` (not `main`). Default `helixtest-ref` is HelixTest SHA `1832c043e1679ec283cb2113510ee33684317cce` (tag v0.1.3). Floating `main` logs a warning.
+- Default `helix-ref` is the Helix origin/main freeze SHA `1304d92daa80f6c9b8b164a543c2210bab391863` (not `main`). Default `helixtest-ref` is HelixTest SHA `1832c043e1679ec283cb2113510ee33684317cce` (tag v0.1.3). Floating `main` logs a warning.
 
 ### Added
 

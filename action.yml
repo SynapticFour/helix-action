@@ -14,7 +14,7 @@ inputs:
   helix-ref:
     description: "Git ref of SynapticFour/Helix to build (ignored if helix-bin is set). Default is the 2026-09 freeze SHA. Floating `main` warns."
     required: false
-    default: "26a3209bdbde8ea48d9e6024658fdfb8213d7258"
+    default: "1304d92daa80f6c9b8b164a543c2210bab391863"
   helixtest-ref:
     description: Git ref of SynapticFour/HelixTest (Helix path-depends on a sibling checkout).
     required: false
