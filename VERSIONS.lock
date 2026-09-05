@@ -1,0 +1,10 @@
+# helix-action pins (not a SKU join)
+#
+# Helix: no release tag. Default helix-ref is the 2026-09 origin/main freeze SHA.
+# HelixTest pin matches Helix/VERSIONS.lock (tag v0.1.3 / this SHA).
+
+HELIX_REF=26a3209bdbde8ea48d9e6024658fdfb8213d7258
+HELIXTEST_REF=v0.1.3
+HELIXTEST_TAG=v0.1.3
+HELIXTEST_SHA=1832c043e1679ec283cb2113510ee33684317cce
+RUST_TOOLCHAIN=1.91.1

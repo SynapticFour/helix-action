@@ -12,8 +12,8 @@ Until this repo has a tag, pin the action at a **commit SHA**.
 
 | What | Default |
 |------|---------|
-| Helix source | `helix-ref`: `main` (must contain the `helix verify` binary — push Helix Stage 1 commits first) |
-| HelixTest source | `helixtest-ref`: `v0.1.3` (`1832c043…`, same pin as Ferrum / Helix `VERSIONS.lock`) |
+| Helix source | `helix-ref`: `26a3209bdbde8ea48d9e6024658fdfb8213d7258` (Helix 2026-09 freeze; **no Helix release tag**. Floating `main` logs a warning.) |
+| HelixTest source | `helixtest-ref`: `1832c043e1679ec283cb2113510ee33684317cce` (tag `v0.1.3`, same pin as Ferrum / Helix `VERSIONS.lock`) |
 | Helix release binaries | **None yet.** The action builds from source (Rust 1.91.1). |
 
 ## Inputs
@@ -21,8 +21,8 @@ Until this repo has a tag, pin the action at a **commit SHA**.
 | Input | Required | Default | What it does |
 |-------|----------|---------|--------------|
 | `endpoint` | when `run` is true | empty | Gateway-style URL, e.g. `http://127.0.0.1:8080` |
-| `helix-ref` | no | `main` | Git ref of `SynapticFour/Helix` |
-| `helixtest-ref` | no | `v0.1.3` | Git ref of `SynapticFour/HelixTest` |
+| `helix-ref` | no | `26a3209bdbde8ea48d9e6024658fdfb8213d7258` | Git ref of `SynapticFour/Helix` (pin a 40-character SHA) |
+| `helixtest-ref` | no | `1832c043e1679ec283cb2113510ee33684317cce` | Git ref of `SynapticFour/HelixTest` |
 | `helix-bin` | no | empty | Absolute path to a pre-built `helix` binary (skips the two checkouts + compile) |
 | `baseline-branch` | no | PR base, else default branch | Branch used to find the last **successful** workflow run |
 | `artifact-name` | no | `helix-verify-json` | Artifact holding `helix-verify.json` |
@@ -103,7 +103,8 @@ jobs:
       - uses: SynapticFour/helix-action@SHA   # pin a SHA
         with:
           endpoint: http://127.0.0.1:8080
-          helix-ref: main   # SHA that contains helix verify
+          helix-ref: 26a3209bdbde8ea48d9e6024658fdfb8213d7258
+          helixtest-ref: 1832c043e1679ec283cb2113510ee33684317cce
           # optional Stage 4 scaffold (never fails the job):
           # bench-baseline: http://127.0.0.1:8080
           # bench-candidate: http://127.0.0.1:8080

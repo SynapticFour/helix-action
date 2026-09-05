@@ -12,13 +12,13 @@ inputs:
     required: false
     default: ""
   helix-ref:
-    description: Git ref of SynapticFour/Helix to build (ignored if helix-bin is set).
+    description: "Git ref of SynapticFour/Helix to build (ignored if helix-bin is set). Default is the 2026-09 freeze SHA. Floating `main` warns."
     required: false
-    default: "main"
+    default: "26a3209bdbde8ea48d9e6024658fdfb8213d7258"
   helixtest-ref:
     description: Git ref of SynapticFour/HelixTest (Helix path-depends on a sibling checkout).
     required: false
-    default: "v0.1.3"
+    default: "1832c043e1679ec283cb2113510ee33684317cce"
   helix-bin:
     description: Absolute path to an already-built helix binary. Empty = build from helix-ref.
     required: false
@@ -125,11 +125,15 @@ runs:
       working-directory: ${{ github.workspace }}/.helix-action-build/helix-src
       env:
         CARGO_TARGET_DIR: ${{ runner.temp }}/helix-target
+        HELIX_REF: ${{ inputs.helix-ref }}
       run: |
         set -euo pipefail
+        if [[ ! "${HELIX_REF}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+          echo "::warning::helix-ref '${HELIX_REF}' is not a 40-character SHA. Pin the Helix freeze commit. Floating main is not the freeze default."
+        fi
         if [[ ! -f src/verify.rs ]]; then
-          echo "Helix ref '${{ inputs.helix-ref }}' has no helix verify CLI (src/verify.rs missing)." >&2
-          echo "Push Helix Stage 1 commits, then pin helix-ref to that SHA." >&2
+          echo "Helix ref '${HELIX_REF}' has no helix verify CLI (src/verify.rs missing)." >&2
+          echo "Pin helix-ref to a SHA that includes helix verify." >&2
           exit 1
         fi
         cargo build --release --bin helix
