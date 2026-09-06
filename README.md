@@ -1,6 +1,6 @@
 # helix-action
 
-GitHub Action wrapper around **`helix verify`** ([Helix](https://github.com/SynapticFour/Helix) / HelixTest heritage). Apache-2.0. **Not a product SKU.** Parallel to [helixtest-action](https://github.com/SynapticFour/helixtest-action); this one posts a PR score comment and fails **only** on regressions (PASS → FAIL).
+GitHub Action around **`helix verify`** ([Helix](https://github.com/SynapticFour/Helix)). Apache-2.0. Parallel to [helixtest-action](https://github.com/SynapticFour/helixtest-action); this one posts a PR score comment and fails **only** on regressions (PASS → FAIL).
 
 The action **does not start Ferrum**. Point `endpoint` at a stack you already brought up in the job. Results are **not** official GA4GH certification. Skips are not passes. Not HELIOS (no RO-Crate / PDF / signatures).
 
