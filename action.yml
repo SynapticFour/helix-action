@@ -12,7 +12,7 @@ inputs:
     required: false
     default: ""
   helix-ref:
-    description: "Git ref of SynapticFour/Helix to build (ignored if helix-bin is set). Default is the 2026-09 freeze SHA. Floating `main` warns."
+    description: "Git ref of SynapticFour/Helix to build (ignored if helix-bin is set). Default is a pinned SHA. Floating `main` warns."
     required: false
     default: "1304d92daa80f6c9b8b164a543c2210bab391863"
   helixtest-ref:
@@ -129,7 +129,7 @@ runs:
       run: |
         set -euo pipefail
         if [[ ! "${HELIX_REF}" =~ ^[0-9a-fA-F]{40}$ ]]; then
-          echo "::warning::helix-ref '${HELIX_REF}' is not a 40-character SHA. Pin the Helix freeze commit. Floating main is not the freeze default."
+          echo "::warning::helix-ref '${HELIX_REF}' is not a 40-character SHA. Pin a 40-character Helix commit. Floating main is not the default."
         fi
         if [[ ! -f src/verify.rs ]]; then
           echo "Helix ref '${HELIX_REF}' has no helix verify CLI (src/verify.rs missing)." >&2

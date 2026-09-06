@@ -1,6 +1,6 @@
 # helix-action
 
-Freeze status (2026-09): [STATUS.md](STATUS.md).
+Status: [STATUS.md](STATUS.md).
 
 
 GitHub Action wrapper around **`helix verify`** ([Helix](https://github.com/SynapticFour/Helix) / HelixTest heritage). Apache-2.0. **Not a product SKU.** Parallel to [helixtest-action](https://github.com/SynapticFour/helixtest-action); this one posts a PR score comment and fails **only** on regressions (PASS → FAIL).
@@ -15,7 +15,7 @@ Until this repo has a tag, pin the action at a **commit SHA**.
 
 | What | Default |
 |------|---------|
-| Helix source | `helix-ref`: `1304d92daa80f6c9b8b164a543c2210bab391863` (Helix 2026-09 freeze; **no Helix release tag**. Floating `main` logs a warning.) |
+| Helix source | `helix-ref`: `1304d92daa80f6c9b8b164a543c2210bab391863` (Helix `origin/main` SHA; **no Helix release tag**. Floating `main` logs a warning.) |
 | HelixTest source | `helixtest-ref`: `1832c043e1679ec283cb2113510ee33684317cce` (tag `v0.1.3`, same pin as Ferrum / Helix `VERSIONS.lock`) |
 | Helix release binaries | **None yet.** The action builds from source (Rust 1.91.1). |
 
