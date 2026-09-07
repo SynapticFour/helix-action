@@ -1,0 +1,18 @@
+{
+  "services": [
+    {
+      "service": "Drs",
+      "tests": [
+        {
+          "name": "DRS checksum correctness",
+          "status": "pass",
+          "passed": true,
+          "error": null
+        }
+      ]
+    }
+  ],
+  "enabled_services": ["Drs"],
+  "skipped_services": [],
+  "executed_test_modules": ["Drs"]
+}

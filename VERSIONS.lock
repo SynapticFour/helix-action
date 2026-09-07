@@ -1,6 +1,10 @@
 # helix-action pins (not a SKU join)
 #
 # Helix: no release tag. Default helix-ref is the 2026-09 origin/main freeze SHA.
+# That tree has no schemas/helix-verification-v1.json (OverallReport-era verify JSON).
+# compare_reports.py requires VerificationRun. Do not retarget this pin to unpublished
+# Helix WIP. Override helix-ref / helix-bin only with a published Helix commit/binary
+# that emits helix-verification-v1.
 # HelixTest pin matches Helix/VERSIONS.lock (tag v0.1.3 / this SHA).
 
 HELIX_REF=1304d92daa80f6c9b8b164a543c2210bab391863

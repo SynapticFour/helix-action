@@ -1,6 +1,6 @@
 # helix-action
 
-GitHub Action around **`helix verify`** ([Helix](https://github.com/SynapticFour/Helix)). Apache-2.0. Parallel to [helixtest-action](https://github.com/SynapticFour/helixtest-action); this one posts a PR score comment and fails **only** on regressions (PASS → FAIL).
+GitHub Action around **`helix verify`** ([Helix](https://github.com/SynapticFour/Helix)). Apache-2.0. Parallel to [helixtest-action](https://github.com/SynapticFour/helixtest-action); this one posts a PR comment and fails **only** on regressions (PASS → FAIL/ERROR at stable Helix check id).
 
 The action **does not start Ferrum**. Point `endpoint` at a stack you already brought up in the job. Results are **not** official GA4GH certification. Skips are not passes. Not HELIOS (no RO-Crate / PDF / signatures).
 
@@ -12,7 +12,7 @@ Until this repo has a tag, pin the action at a **commit SHA**.
 
 | What | Default |
 |------|---------|
-| Helix source | `helix-ref`: `1304d92daa80f6c9b8b164a543c2210bab391863` (Helix `origin/main` SHA; **no Helix release tag**. Floating `main` logs a warning.) |
+| Helix source | `helix-ref`: `1304d92daa80f6c9b8b164a543c2210bab391863` (Helix `origin/main` freeze SHA; **no Helix release tag**. Floating `main` logs a warning.) That tree has **no** `schemas/helix-verification-v1.json`. This Action compares VerificationRun only; the pin was not moved to unpublished Helix WIP. Override `helix-ref` / `helix-bin` only with a **published** Helix commit/binary that emits that document. |
 | HelixTest source | `helixtest-ref`: `1832c043e1679ec283cb2113510ee33684317cce` (tag `v0.1.3`, same pin as Ferrum / Helix `VERSIONS.lock`) |
 | Helix release binaries | **None yet.** The action builds from source (Rust 1.91.1). |
 
@@ -27,7 +27,7 @@ Until this repo has a tag, pin the action at a **commit SHA**.
 | `baseline-branch` | no | PR base, else default branch | Branch used to find the last **successful** workflow run |
 | `artifact-name` | no | `helix-verify-json` | Artifact holding `helix-verify.json` |
 | `comment` | no | `true` | Upsert a PR comment (`<!-- helix-verification -->`) |
-| `fail-on-regression` | no | `true` | Job fails only on PASS → FAIL. Known FAILs stay green. Bench warnings never fail the job. |
+| `fail-on-regression` | no | `true` | Job fails only on PASS → FAIL/ERROR at stable id. Known FAILs stay green. Bench warnings never fail the job. |
 | `bench-baseline` | no | empty | Origin for `helix bench --baseline`. Set together with `bench-candidate`, or leave both empty. |
 | `bench-candidate` | no | empty | Origin for `helix bench --candidate`. |
 | `bench-threshold` | no | `10` | Percent worse than baseline → comment warning only. |
@@ -63,17 +63,21 @@ Do not put Ferrum credentials, JWT secrets, or HELIOS signing keys in this Actio
 | Output | Meaning |
 |--------|---------|
 | `json-path` | Current `helix verify --format json` file |
-| `regression` | `true` if any check went PASS → FAIL |
-| `current-score` | `X/Y` executed checks (skips omitted) |
-| `previous-score` | Baseline `X/Y` |
+| `regression` | `true` if any check went PASS → FAIL/ERROR at stable id |
+| `current-score` | `X/Y` executed checks from VerificationRun (`pass` / `pass+fail+error`; skips omitted). Not a certification score. |
+| `previous-score` | Baseline `X/Y`, or `0/0` when none / previous was OverallReport |
 | `bench-warning` | `true` if bench ran and a metric exceeded the threshold (never fails the job) |
 
 `helix verify` itself exits 1 when the report contains FAILs. The Action **captures JSON anyway** and does not use that exit code as the job result.
 
+## JSON shape
+
+`helix verify --format json` is Helix **`VerificationRun`** (`schema_version`: `helix-verification-v1`, `executed[]` / `skipped[]`). Compare is at stable check **id** (example `drs.object.not_found` / `HLX-DRS-005`). HelixTest `OverallReport` (`services[]`) is **rejected** for current JSON (exit 2). That shape is still `helix security`, not this Action. A previous OverallReport artifact is ignored (new VerificationRun becomes the baseline), not parsed. Not HELIOS.
+
 ## PR comment
 
 ```
-Helix Verification — Previous: 5/5 | Current: 4/5 | DRS: FAIL, WES: SKIP
+Helix verification — new regressions: 1; fixed: 0; existing failures: 0
 ```
 
 If `bench-baseline` and `bench-candidate` are set, the same comment grows a **Helix bench (warn only)** section. A >threshold% slower candidate is a warning for humans. It does **not** fail the job.
@@ -103,7 +107,7 @@ jobs:
       - uses: SynapticFour/helix-action@SHA   # pin a SHA
         with:
           endpoint: http://127.0.0.1:8080
-          helix-ref: 1304d92daa80f6c9b8b164a543c2210bab391863
+          helix-ref: 1304d92daa80f6c9b8b164a543c2210bab391863  # Helix origin/main freeze; lacks VerificationRun schema — override with a published SHA that has it
           helixtest-ref: 1832c043e1679ec283cb2113510ee33684317cce
           # optional Stage 4 scaffold (never fails the job):
           # bench-baseline: http://127.0.0.1:8080

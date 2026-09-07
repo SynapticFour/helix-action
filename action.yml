@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 name: Helix verify
-description: Run helix verify, compare with the last successful baseline, comment on the PR. Fail only on PASS→FAIL regressions.
+description: Run helix verify, compare VerificationRun JSON at stable check id, comment on the PR. Fail only on PASS→FAIL/ERROR regressions.
 author: Synaptic Four
 branding:
   icon: check-circle
@@ -12,7 +12,7 @@ inputs:
     required: false
     default: ""
   helix-ref:
-    description: "Git ref of SynapticFour/Helix to build (ignored if helix-bin is set). Default is a pinned SHA. Floating `main` warns."
+    description: "Git ref of SynapticFour/Helix to build (ignored if helix-bin is set). Default is Helix origin/main freeze SHA 1304d92 (OverallReport-era; that tree has no helix-verification-v1.json). compare_reports.py requires VerificationRun. Floating `main` warns."
     required: false
     default: "1304d92daa80f6c9b8b164a543c2210bab391863"
   helixtest-ref:
@@ -36,7 +36,7 @@ inputs:
     required: false
     default: "true"
   fail-on-regression:
-    description: "If true, fail the job only when a check went PASS → FAIL. Known FAILs do not fail the job. Bench warnings never fail the job."
+    description: "If true, fail the job only when a check went PASS → FAIL/ERROR at stable Helix id. Known FAILs do not fail the job. Bench warnings never fail the job."
     required: false
     default: "true"
   bench-baseline:
@@ -73,10 +73,10 @@ outputs:
     description: Path to the current helix verify JSON
     value: ${{ steps.verify.outputs.json-path }}
   regression:
-    description: "true if any PASS → FAIL vs baseline"
+    description: "true if any PASS → FAIL/ERROR vs baseline at stable Helix id"
     value: ${{ steps.compare.outputs.regression }}
   current-score:
-    description: Current X/Y executed checks
+    description: Current X/Y executed VerificationRun checks (skips omitted; not a certification score)
     value: ${{ steps.compare.outputs.current_score }}
   previous-score:
     description: Previous X/Y, or 0/0 when none
@@ -103,6 +103,7 @@ runs:
         ref: ${{ inputs.helix-ref }}
         path: .helix-action-build/helix-src
         token: ${{ inputs.github-token }}
+        persist-credentials: false
 
     - name: Checkout HelixTest (sibling of Helix, D1)
       if: ${{ inputs.run != 'false' && inputs.helix-bin == '' }}
@@ -112,6 +113,7 @@ runs:
         ref: ${{ inputs.helixtest-ref }}
         path: .helix-action-build/HelixTest
         token: ${{ inputs.github-token }}
+        persist-credentials: false
 
     - name: Install Rust
       if: ${{ inputs.run != 'false' && inputs.helix-bin == '' }}
@@ -134,6 +136,12 @@ runs:
         if [[ ! -f src/verify.rs ]]; then
           echo "Helix ref '${HELIX_REF}' has no helix verify CLI (src/verify.rs missing)." >&2
           echo "Pin helix-ref to a SHA that includes helix verify." >&2
+          exit 1
+        fi
+        if [[ ! -f schemas/helix-verification-v1.json ]]; then
+          echo "Helix ref '${HELIX_REF}' has no schemas/helix-verification-v1.json." >&2
+          echo "This Action compares helix verify VerificationRun JSON only (not HelixTest OverallReport)." >&2
+          echo "Helix origin/main still lacks that schema. Pin helix-ref to a published Helix commit that contains it, or pass helix-bin built from one. Do not pin an unpublished local SHA." >&2
           exit 1
         fi
         cargo build --release --bin helix
@@ -278,16 +286,16 @@ runs:
         chmod +x "${GITHUB_ACTION_PATH}/scripts/post_pr_comment.sh"
         "${GITHUB_ACTION_PATH}/scripts/post_pr_comment.sh" "${HELIX_COMMENT_FILE}"
 
-    - name: Fail only on PASS to FAIL
+    - name: Fail only on PASS to FAIL/ERROR
       if: ${{ inputs.run != 'false' && inputs.fail-on-regression == 'true' }}
       shell: bash
       run: |
         set -euo pipefail
         if [[ "${HELIX_COMPARE_EC:-0}" -eq 1 ]]; then
-          echo "Helix regression: at least one check went PASS → FAIL." >&2
+          echo "Helix regression: at least one check went PASS → FAIL/ERROR at stable id." >&2
           exit 1
         fi
-        echo "No PASS → FAIL regressions (known FAILs and skips do not fail this job)."
+        echo "No PASS → FAIL/ERROR regressions (known FAILs and skips do not fail this job)."
         if [[ "${{ steps.compare.outputs.bench_warning }}" == "true" ]]; then
           echo "Helix bench warned (threshold); that is informational and did not fail this job."
         fi
