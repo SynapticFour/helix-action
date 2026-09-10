@@ -12,8 +12,9 @@ Until this repo has a tag, pin the action at a **commit SHA**.
 
 | What | Default |
 |------|---------|
-| Helix source | `helix-ref`: `1304d92daa80f6c9b8b164a543c2210bab391863` (Helix `origin/main` freeze SHA; **no Helix release tag**. Floating `main` logs a warning.) That tree has **no** `schemas/helix-verification-v1.json`. This Action compares VerificationRun only; the pin was not moved to unpublished Helix WIP. Override `helix-ref` / `helix-bin` only with a **published** Helix commit/binary that emits that document. |
-| HelixTest source | `helixtest-ref`: `1832c043e1679ec283cb2113510ee33684317cce` (tag `v0.1.3`, same pin as Ferrum / Helix `VERSIONS.lock`) |
+| Helix source | `helix-ref`: `7ae2acac5d50238ad36f6c2ddb5ae6695dd97ff7` (published Helix `main`; DRS 1.4.0 baseline; **no Helix release tag**. Floating `main` logs a warning.) That tree **includes** `schemas/helix-verification-v1.json`. This Action compares VerificationRun only and invokes Helix's technical verification path. |
+| HelixTest source | `helixtest-ref`: `1baddfd3d75f01dc7c149074a785616fa014c725` (exact source Helix compiles; HelixTest lineage `v0.1.3`. Not the tagged tag commit.) |
+| HelixTest lineage | `v0.1.3` |
 | Helix release binaries | **None yet.** The action builds from source (Rust 1.91.1). |
 
 ## Inputs
@@ -21,8 +22,8 @@ Until this repo has a tag, pin the action at a **commit SHA**.
 | Input | Required | Default | What it does |
 |-------|----------|---------|--------------|
 | `endpoint` | when `run` is true | empty | Gateway-style URL, e.g. `http://127.0.0.1:8080` |
-| `helix-ref` | no | `1304d92daa80f6c9b8b164a543c2210bab391863` | Git ref of `SynapticFour/Helix` (pin a 40-character SHA) |
-| `helixtest-ref` | no | `1832c043e1679ec283cb2113510ee33684317cce` | Git ref of `SynapticFour/HelixTest` |
+| `helix-ref` | no | `7ae2acac5d50238ad36f6c2ddb5ae6695dd97ff7` | Git ref of `SynapticFour/Helix` (pin a 40-character SHA) |
+| `helixtest-ref` | no | `1baddfd3d75f01dc7c149074a785616fa014c725` | Git ref of `SynapticFour/HelixTest` (exact source SHA; lineage `v0.1.3`) |
 | `helix-bin` | no | empty | Absolute path to a pre-built `helix` binary (skips the two checkouts + compile) |
 | `baseline-branch` | no | PR base, else default branch | Branch used to find the last **successful** workflow run |
 | `artifact-name` | no | `helix-verify-json` | Artifact holding `helix-verify.json` |
@@ -107,8 +108,8 @@ jobs:
       - uses: SynapticFour/helix-action@SHA   # pin a SHA
         with:
           endpoint: http://127.0.0.1:8080
-          helix-ref: 1304d92daa80f6c9b8b164a543c2210bab391863  # Helix origin/main freeze; lacks VerificationRun schema — override with a published SHA that has it
-          helixtest-ref: 1832c043e1679ec283cb2113510ee33684317cce
+          helix-ref: 7ae2acac5d50238ad36f6c2ddb5ae6695dd97ff7  # published Helix main; DRS 1.4.0 baseline
+          helixtest-ref: 1baddfd3d75f01dc7c149074a785616fa014c725  # HelixTest source; lineage v0.1.3
           # optional Stage 4 scaffold (never fails the job):
           # bench-baseline: http://127.0.0.1:8080
           # bench-candidate: http://127.0.0.1:8080

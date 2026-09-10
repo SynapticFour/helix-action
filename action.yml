@@ -12,13 +12,13 @@ inputs:
     required: false
     default: ""
   helix-ref:
-    description: "Git ref of SynapticFour/Helix to build (ignored if helix-bin is set). Default is Helix origin/main freeze SHA 1304d92 (OverallReport-era; that tree has no helix-verification-v1.json). compare_reports.py requires VerificationRun. Floating `main` warns."
+    description: "Git ref of SynapticFour/Helix to build (ignored if helix-bin is set). Default is published Helix main SHA 7ae2acac (DRS 1.4.0 baseline; includes schemas/helix-verification-v1.json). Floating `main` warns."
     required: false
-    default: "1304d92daa80f6c9b8b164a543c2210bab391863"
+    default: "7ae2acac5d50238ad36f6c2ddb5ae6695dd97ff7"
   helixtest-ref:
-    description: Git ref of SynapticFour/HelixTest (Helix path-depends on a sibling checkout).
+    description: "Git ref of SynapticFour/HelixTest (Helix path-depends on a sibling checkout). Default is exact source SHA 1baddfd3 (lineage v0.1.3; not the tagged tag commit)."
     required: false
-    default: "1832c043e1679ec283cb2113510ee33684317cce"
+    default: "1baddfd3d75f01dc7c149074a785616fa014c725"
   helix-bin:
     description: Absolute path to an already-built helix binary. Empty = build from helix-ref.
     required: false
@@ -141,7 +141,7 @@ runs:
         if [[ ! -f schemas/helix-verification-v1.json ]]; then
           echo "Helix ref '${HELIX_REF}' has no schemas/helix-verification-v1.json." >&2
           echo "This Action compares helix verify VerificationRun JSON only (not HelixTest OverallReport)." >&2
-          echo "Helix origin/main still lacks that schema. Pin helix-ref to a published Helix commit that contains it, or pass helix-bin built from one. Do not pin an unpublished local SHA." >&2
+          echo "Pin helix-ref to a published Helix commit that contains that schema, or pass helix-bin built from one. Do not pin an unpublished local SHA." >&2
           exit 1
         fi
         cargo build --release --bin helix

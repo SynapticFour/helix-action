@@ -393,7 +393,14 @@ class ActionContractTest(unittest.TestCase):
     def test_build_requires_verification_schema_file(self):
         text = (ROOT / "action.yml").read_text(encoding="utf-8")
         self.assertIn("schemas/helix-verification-v1.json", text)
-        self.assertIn('default: "1304d92daa80f6c9b8b164a543c2210bab391863"', text)
+        self.assertIn('default: "7ae2acac5d50238ad36f6c2ddb5ae6695dd97ff7"', text)
+        self.assertIn('default: "1baddfd3d75f01dc7c149074a785616fa014c725"', text)
+        self.assertNotIn(
+            'default: "1304d92daa80f6c9b8b164a543c2210bab391863"', text
+        )
+        self.assertNotIn(
+            'default: "1832c043e1679ec283cb2113510ee33684317cce"', text
+        )
 
     def test_ci_is_contents_read_only(self):
         text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
