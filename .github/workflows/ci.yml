@@ -19,7 +19,7 @@ jobs:
       - name: Action metadata exists
         run: test -f action.yml && test -f README.md && test -f LICENSE
       - name: Compare-script unit tests
-        run: python3 -m unittest discover -s tests -v
+        run: python3 -m unittest discover -s tests -t . -v
       - uses: ./
         with:
           run: "false"
