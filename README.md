@@ -1,99 +1,33 @@
 # helix-action
 
-GitHub Action around **`helix verify`** ([Helix](https://github.com/SynapticFour/Helix)). Apache-2.0. Parallel to [helixtest-action](https://github.com/SynapticFour/helixtest-action); this one posts a PR comment and fails **only** on regressions (PASS → FAIL/ERROR at stable Helix check id).
+helix-action runs `helix verify` in a GitHub job and fails that job only when a check goes from pass to fail.
 
-The action **does not start Ferrum**. Point `endpoint` at a stack you already brought up in the job. Results are **not** official GA4GH certification. Skips are not passes. Not HELIOS (no RO-Crate / PDF / signatures).
+For someone who already starts a genomics HTTP service in the job and wants a comment when a previously passing check breaks.
 
-HelixTest stays a **separate git root**. This action checks out Helix and HelixTest as siblings to build the CLI (Helix `Cargo.toml` path-depends on `../HelixTest`). Do not merge HelixTest into Helix for this Action to work.
+**Status: No public status is recorded.** The claims registry has no stage for this action.
 
-## Pin
+It does not start Ferrum. Results are not GA4GH certification. Skips are not passes. Signed evidence stays in [HELIOS](https://github.com/SynapticFour/HELIOS). The suite itself is [HelixTest](https://github.com/SynapticFour/HelixTest). The command is [Helix](https://github.com/SynapticFour/Helix).
 
-Until this repo has a tag, pin the action at a **commit SHA**.
+## What it does
 
-| What | Default |
-|------|---------|
-| Helix source | `helix-ref`: `7ae2acac5d50238ad36f6c2ddb5ae6695dd97ff7` (published Helix `main`; DRS 1.4.0 baseline; **no Helix release tag**. Floating `main` logs a warning.) That tree **includes** `schemas/helix-verification-v1.json`. This Action compares VerificationRun only and invokes Helix's technical verification path. |
-| HelixTest source | `helixtest-ref`: `1baddfd3d75f01dc7c149074a785616fa014c725` (exact source Helix compiles; HelixTest lineage `v0.1.3`. Not the tagged tag commit.) |
-| HelixTest lineage | `v0.1.3` |
-| Helix release binaries | **None yet.** The action builds from source (Rust 1.91.1). |
+- It checks out Helix and HelixTest, builds `helix`, and runs `helix verify` against `endpoint`.
+- It compares the VerificationRun JSON with the last successful run of the same workflow, at a stable check id.
+- It updates one pull request comment. With `fail-on-regression` at its default, the job fails only on PASS to FAIL or PASS to ERROR.
+- Optional `helix bench` can add a warning. That warning does not fail the job.
 
-## Inputs
+## Limits
 
-| Input | Required | Default | What it does |
-|-------|----------|---------|--------------|
-| `endpoint` | when `run` is true | empty | Gateway-style URL, e.g. `http://127.0.0.1:8080` |
-| `helix-ref` | no | `7ae2acac5d50238ad36f6c2ddb5ae6695dd97ff7` | Git ref of `SynapticFour/Helix` (pin a 40-character SHA) |
-| `helixtest-ref` | no | `1baddfd3d75f01dc7c149074a785616fa014c725` | Git ref of `SynapticFour/HelixTest` (exact source SHA; lineage `v0.1.3`) |
-| `helix-bin` | no | empty | Absolute path to a pre-built `helix` binary (skips the two checkouts + compile) |
-| `baseline-branch` | no | PR base, else default branch | Branch used to find the last **successful** workflow run |
-| `artifact-name` | no | `helix-verify-json` | Artifact holding `helix-verify.json` |
-| `comment` | no | `true` | Upsert a PR comment (`<!-- helix-verification -->`) |
-| `fail-on-regression` | no | `true` | Job fails only on PASS → FAIL/ERROR at stable id. Known FAILs stay green. Bench warnings never fail the job. |
-| `bench-baseline` | no | empty | Origin for `helix bench --baseline`. Set together with `bench-candidate`, or leave both empty. |
-| `bench-candidate` | no | empty | Origin for `helix bench --candidate`. |
-| `bench-threshold` | no | `10` | Percent worse than baseline → comment warning only. |
-| `bench-baseline-label` | no | `baseline` | Label in bench JSON / comment. |
-| `bench-candidate-label` | no | `candidate` | Label in bench JSON / comment. |
-| `run` | no | `true` | `false` = skip verify (used by this repo’s CI) |
-| `github-token` | no | `${{ github.token }}` | See secrets below |
+- A green run means no new regression of that kind. It does not mean every check passed, and it does not mean the target conforms to a GA4GH specification. Known failures stay green. The first run has no baseline and stays green. See [docs/FOR-EVALUATORS.md](docs/FOR-EVALUATORS.md).
+- The action does not start a server. Point `endpoint` at a stack the job already brought up.
+- The default `helix-ref` is `7ae2acac5d50238ad36f6c2ddb5ae6695dd97ff7`, an ancestor of Helix's default branch, not the tip. The default `helixtest-ref` is `1baddfd3d75f01dc7c149074a785616fa014c725`. Pin this action at a commit SHA until it has a tag.
+- This is not helixtest-action, not a merge of HelixTest into Helix, and not HELIOS.
+- Do not add this as a required status check on Ferrum `main` until a week of pilot runs is boring. Known failures must not block merges.
 
-## Secrets and token permissions
+## Quick start
 
-No extra repository secrets are required for a public Ferrum / Helix job.
-
-The **caller workflow** must grant the default `GITHUB_TOKEN` enough permission:
+The caller workflow needs `contents: read`, `actions: read`, and `pull-requests: write`.
 
 ```yaml
-permissions:
-  contents: read          # checkout Helix / HelixTest (public)
-  actions: read           # download the previous run’s artifact
-  pull-requests: write    # post or update the PR comment
-```
-
-| Need | Secret / token | Notes |
-|------|----------------|-------|
-| Clone public Helix + HelixTest | `github-token` (default `GITHUB_TOKEN`) | Fine for public repos. For private forks, a PAT with `contents:read` on those repos. |
-| Previous JSON | same token, `actions: read` | Looks up the last **successful** run of **this workflow name** on `baseline-branch`. First run has no baseline (comment says `Previous: n/a`; job stays green). |
-| PR comment | same token, `pull-requests: write` | Fork PRs from outsiders may not be able to comment; that is a GitHub limitation, not a Helix secret. |
-| Helix GHCR / Ferrum registry | **none in this Action** | Bring the stack up in the job (Ferrum `make up` / compose). |
-
-Do not put Ferrum credentials, JWT secrets, or HELIOS signing keys in this Action.
-
-## Outputs
-
-| Output | Meaning |
-|--------|---------|
-| `json-path` | Current `helix verify --format json` file |
-| `regression` | `true` if any check went PASS → FAIL/ERROR at stable id |
-| `current-score` | `X/Y` executed checks from VerificationRun (`pass` / `pass+fail+error`; skips omitted). Not a certification score. |
-| `previous-score` | Baseline `X/Y`, or `0/0` when none / previous was OverallReport |
-| `bench-warning` | `true` if bench ran and a metric exceeded the threshold (never fails the job) |
-
-`helix verify` itself exits 1 when the report contains FAILs. The Action **captures JSON anyway** and does not use that exit code as the job result.
-
-## JSON shape
-
-`helix verify --format json` is Helix **`VerificationRun`** (`schema_version`: `helix-verification-v1`, `executed[]` / `skipped[]`). Compare is at stable check **id** (example `drs.object.not_found` / `HLX-DRS-005`). HelixTest `OverallReport` (`services[]`) is **rejected** for current JSON (exit 2). That shape is still `helix security`, not this Action. A previous OverallReport artifact is ignored (new VerificationRun becomes the baseline), not parsed. Not HELIOS.
-
-## PR comment
-
-```
-Helix verification — new regressions: 1; fixed: 0; existing failures: 0
-```
-
-If `bench-baseline` and `bench-candidate` are set, the same comment grows a **Helix bench (warn only)** section. A >threshold% slower candidate is a warning for humans. It does **not** fail the job.
-
-One comment per PR is updated in place.
-
-## Usage (Ferrum pilot — not `main`)
-
-```yaml
-name: Helix verify pilot
-on:
-  pull_request:
-    branches: [ci/helix-verify-pilot]
-  workflow_dispatch:
-
 permissions:
   contents: read
   actions: read
@@ -104,27 +38,75 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # start your stack here (Ferrum compose / make up)
-      - uses: SynapticFour/helix-action@SHA   # pin a SHA
+      # Start the service in this job. This action does not start it.
+      - uses: SynapticFour/helix-action@SHA
         with:
           endpoint: http://127.0.0.1:8080
-          helix-ref: 7ae2acac5d50238ad36f6c2ddb5ae6695dd97ff7  # published Helix main; DRS 1.4.0 baseline
-          helixtest-ref: 1baddfd3d75f01dc7c149074a785616fa014c725  # HelixTest source; lineage v0.1.3
-          # optional Stage 4 scaffold (never fails the job):
-          # bench-baseline: http://127.0.0.1:8080
-          # bench-candidate: http://127.0.0.1:8080
 ```
 
-Do **not** add this as a required status check on Ferrum `main` until a week of pilot runs is boring (Helix Stage 2). Known FAILs must not block merges.
+Replace `SHA` with the 40-character commit you have read. Do not use `@main` as the pin. A green job means no new PASS to FAIL or PASS to ERROR at a stable id. It does not mean GA4GH certification.
 
-## Runners
+You should see a pull request comment that counts new regressions, fixes, and existing failures. On a run with no new regression the compare script exits 0.
 
-Build from source on `ubuntu-latest` (x86_64). Same limitation as compiling Helix locally: HelixTest crates (including crypt4gh) must compile on the runner.
+## Inputs
 
-## What this is not
+| Input | Required | Default | What it does |
+|-------|----------|---------|--------------|
+| `endpoint` | when `run` is true | empty | Gateway-style URL, for example `http://127.0.0.1:8080` |
+| `helix-ref` | no | `7ae2acac5d50238ad36f6c2ddb5ae6695dd97ff7` | Git ref of SynapticFour/Helix. Pin a 40-character SHA. |
+| `helixtest-ref` | no | `1baddfd3d75f01dc7c149074a785616fa014c725` | Git ref of SynapticFour/HelixTest |
+| `helix-bin` | no | empty | Absolute path to a pre-built `helix` binary. Skips the two checkouts and the compile. |
+| `baseline-branch` | no | pull request base, else the default branch | Branch used to find the last successful workflow run |
+| `artifact-name` | no | `helix-verify-json` | Artifact holding `helix-verify.json` |
+| `comment` | no | `true` | Update a pull request comment |
+| `fail-on-regression` | no | `true` | Fail only on PASS to FAIL or ERROR at a stable id |
+| `bench-baseline` | no | empty | Origin for `helix bench --baseline`. Set with `bench-candidate`, or leave both empty. |
+| `bench-candidate` | no | empty | Origin for `helix bench --candidate` |
+| `bench-threshold` | no | `10` | Percent worse than baseline. A comment warning only. |
+| `bench-baseline-label` | no | `baseline` | Label in the bench JSON and the comment |
+| `bench-candidate-label` | no | `candidate` | Label in the bench JSON and the comment |
+| `run` | no | `true` | `false` skips verify. This repository's own CI uses that. |
+| `github-token` | no | `${{ github.token }}` | Checkout, baseline artifact, and the comment. See [docs/REFERENCE.md](docs/REFERENCE.md). |
 
-- Not a Ferrum installer
-- Not helixtest-action (that still downloads `helixtest` release binaries)
-- Not a merge of HelixTest into Helix
-- Not HELIOS pipeline evidence
-- Not GA4GH certification
+## Documentation
+
+Every file under `docs/` is listed in [docs/README.md](docs/README.md).
+
+### Tutorial
+
+The usage example above is the tutorial. There is no separate getting-started page.
+
+### How-to guides
+
+No separate how-to page. The caller permissions are in the reference below.
+
+### Reference
+
+- [Pins, tokens, outputs, and the comment](docs/REFERENCE.md)
+- [For evaluators](docs/FOR-EVALUATORS.md)
+- [Who it is for](docs/IDENTITY.md)
+- [Changelog](CHANGELOG.md)
+- [Security](SECURITY.md)
+
+### Explanation
+
+This action is a thin wrapper. The design of the checks is in [Helix](https://github.com/SynapticFour/Helix).
+
+## Licence
+
+Apache License 2.0. The file is [LICENSE](LICENSE). There is no separate licence claim for this action in the registry.
+
+## Cite
+
+Use [CITATION.cff](CITATION.cff). Prefer that file over a hand-copied line.
+
+## Website
+
+- Open tools: [https://synapticfour.com/en/offene-werkzeuge/](https://synapticfour.com/en/offene-werkzeuge/)
+- Technical profile: [https://synapticfour.com/en/technical/code/](https://synapticfour.com/en/technical/code/)
+
+The same pages exist in German (`/de/offene-werkzeuge/`, `/de/technik/code/`) and in French (`/fr/offene-werkzeuge/`, `/fr/technique/code/`).
+
+The map of repositories: [profile/README.md](https://github.com/SynapticFour/.github/blob/main/profile/README.md).
+
+Contact: [contact@synapticfour.com](mailto:contact@synapticfour.com)
